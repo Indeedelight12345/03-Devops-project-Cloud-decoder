@@ -1,6 +1,9 @@
-# Build stage
+# =====================
+# Stage 1: Build Stage
+# =====================
 FROM node:20-alpine AS builder
 
+# Set working directory
 WORKDIR /app
 
 # Copy package files
@@ -9,32 +12,38 @@ COPY package.json package-lock.json* ./
 # Install dependencies
 RUN npm ci
 
-# Copy source code
+# Copy all source code
 COPY . .
 
-# Build the app with API key
+# Accept API key as build argument (optional, mostly for Vite build)
 ARG VITE_API_KEY
 ENV VITE_API_KEY=${VITE_API_KEY}
+
+# Build the app
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine
+# =====================
+# Stage 2: Production Stage
+# =====================
+FROM node:20-alpine AS production
 
 WORKDIR /app
 
 # Install serve to run the built app
 RUN npm install -g serve
 
-# Copy built app from builder
+# Copy the built app from builder
 COPY --from=builder /app/dist ./dist
+COPY --from=builder  ./public/config.template.js
 
-# Accept API key as build argument and set as environment variable
-ARG VITE_API_KEY
-ENV API_KEY=${VITE_API_KEY}
-ENV VITE_API_KEY=${VITE_API_KEY}
-
-# Expose port
+# Expose the port
 EXPOSE 3000
 
-# Serve the app
-CMD ["serve", "-s", "dist", "-l", "3000"]
+# =====================
+# Runtime entrypoint
+# =====================
+# This will inject the API key into config.js at container startup
+# and then start the server
+CMD sh -c "if [ -z \"$VITE_API_KEY\" ]; then echo 'ERROR: VITE_API_KEY not set'; exit 1; fi && \
+    sed 's|__API_KEY__|$VITE_API_KEY|g' config.template.js > dist/config.js && \
+    serve -s dist -l 3000"
